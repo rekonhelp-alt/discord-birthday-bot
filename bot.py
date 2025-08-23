@@ -8,7 +8,6 @@ import discord
 import pytz
 from discord.ext import commands, tasks
 
-from keep_alive import keep_alive
 
 # ==================== Конфиг ====================
 TOKEN = os.getenv("TOKEN")
@@ -347,5 +346,4 @@ async def set_message(interaction: discord.Interaction, *, text: str):
 
 
 # ==================== Запуск ====================
-keep_alive()
 bot.run(TOKEN)
