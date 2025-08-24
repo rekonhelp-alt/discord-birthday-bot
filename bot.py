@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 from keep_alive import keep_alive
 
-# ==================== Конфиг из Render Secrets ====================
+# ==================== Конфиг ====================
 TOKEN = os.getenv("TOKEN")
 GUILD_ID = os.getenv("GUILD_ID")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -73,10 +73,9 @@ def parse_date(date_str: str) -> datetime | None:
 @bot.event
 async def on_ready():
     try:
-        guild = discord.Object(id=GUILD_ID)
-        cmds = await bot.tree.sync(guild=guild)
+        cmds = await bot.tree.sync()
 
-        print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
+        print(f"✅ Синхронизировано {len(cmds)} глобальных команд:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
 
@@ -161,7 +160,7 @@ async def remind_birthdays():
     if not isinstance(channel, discord.TextChannel):
         return
 
-    role = discord.utils.get(guild.roles, name="Madison")
+    role = discord.utils.get(guild.roles, id=ROLE_ID)
     if not role:
         return
 
@@ -183,8 +182,7 @@ async def remind_birthdays():
 # ==================== Команды ====================
 @bot.tree.command(
     name="add_birthday",
-    description="Добавить день рождения участнику (ДД/ММ)",
-    guild=discord.Object(id=GUILD_ID),
+    description="Добавить день рождения участнику (ДД/ММ)"
 )
 async def add_birthday(
     interaction: discord.Interaction, member: discord.Member, date: str
@@ -207,8 +205,7 @@ async def add_birthday(
 
 @bot.tree.command(
     name="my_birthday",
-    description="Установить свой день рождения (ДД/ММ)",
-    guild=discord.Object(id=GUILD_ID),
+    description="Установить свой день рождения (ДД/ММ)"
 )
 async def my_birthday(interaction: discord.Interaction, date: str):
     parsed = parse_date(date)
@@ -231,8 +228,7 @@ async def my_birthday(interaction: discord.Interaction, date: str):
 
 @bot.tree.command(
     name="list_birthdays",
-    description="Список всех ДР",
-    guild=discord.Object(id=GUILD_ID),
+    description="Список всех ДР"
 )
 async def list_birthdays(interaction: discord.Interaction):
     birthdays = load_birthdays()
@@ -265,12 +261,12 @@ async def list_birthdays(interaction: discord.Interaction):
 
     upcoming.sort(key=lambda x: x[0])
 
-    # Разбиваем на страницы по 25
-    chunks = [upcoming[i:i + 25] for i in range(0, len(upcoming), 25)]
-
-    for page_num, chunk in enumerate(chunks, start=1):
+    # Разбиваем на части по 25 человек
+    embeds = []
+    for i in range(0, len(upcoming), 25):
+        chunk = upcoming[i:i+25]
         embed = discord.Embed(
-            title=f"📅 Список дней рождения (стр. {page_num}/{len(chunks)})",
+            title="📅 Список дней рождения" if i == 0 else "Продолжение списка:",
             color=discord.Color.blue()
         )
         for _, member, date_str in chunk:
@@ -279,13 +275,14 @@ async def list_birthdays(interaction: discord.Interaction):
                 value=f"🎂 {date_str}",
                 inline=False
             )
-        await interaction.followup.send(embed=embed) if page_num > 1 else await interaction.response.send_message(embed=embed)
+        embeds.append(embed)
+
+    await interaction.response.send_message(embeds=embeds)
 
 
 @bot.tree.command(
     name="next_birthday",
-    description="Показать ближайший ДР",
-    guild=discord.Object(id=GUILD_ID),
+    description="Показать ближайший ДР"
 )
 async def next_birthday(interaction: discord.Interaction):
     birthdays = load_birthdays()
@@ -326,8 +323,7 @@ async def next_birthday(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="remove_birthday",
-    description="Удалить день рождения участника",
-    guild=discord.Object(id=GUILD_ID),
+    description="Удалить день рождения участника"
 )
 async def remove_birthday(
     interaction: discord.Interaction, member: discord.Member
@@ -347,8 +343,7 @@ async def remove_birthday(
 
 @bot.tree.command(
     name="set_message",
-    description="Установить текст поздравления (используй {user})",
-    guild=discord.Object(id=GUILD_ID),
+    description="Установить текст поздравления (используй {user})"
 )
 async def set_message(interaction: discord.Interaction, *, text: str):
     save_message(text)
