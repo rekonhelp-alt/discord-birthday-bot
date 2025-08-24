@@ -75,12 +75,12 @@ async def on_ready():
     try:
         guild = discord.Object(id=GUILD_ID)
 
-        # 🔥 очищаем все старые команды на сервере
-        await bot.tree.sync(guild=guild)
-        await bot.tree.clear_commands(guild=guild)
-        await bot.tree.sync(guild=guild)
+        # 🔥 сначала очищаем все команды для этого сервера
+        bot.tree.clear_commands(guild=guild)
 
+        # 🔄 потом заново синхронизируем
         cmds = await bot.tree.sync(guild=guild)
+
         print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
