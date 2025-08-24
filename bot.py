@@ -1,102 +1,122 @@
-import json
 import os
-import sys
-from contextlib import suppress
-from datetime import datetime, timedelta
-
+import json
 import discord
-import pytz
 from discord.ext import commands, tasks
-
+from discord import app_commands
+from datetime import datetime, timedelta
+from contextlib import suppress
+import pytz
 from keep_alive import keep_alive
 
-# ==================== Конфиг ====================
-TOKEN = os.getenv("TOKEN")
-GUILD_ID = os.getenv("GUILD_ID")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-ROLE_ID = os.getenv("ROLE_ID")
-
-if not TOKEN or not GUILD_ID or not CHANNEL_ID or not ROLE_ID:
-    raise ValueError(
-        "❌ Переменные окружения не установлены! "
-        "Задай TOKEN, GUILD_ID, CHANNEL_ID, ROLE_ID в Render Secrets."
-    )
-
-GUILD_ID = int(GUILD_ID)
-CHANNEL_ID = int(CHANNEL_ID)
-ROLE_ID = int(ROLE_ID)
-
-BIRTHDAYS_FILE = "birthdays.json"
-MESSAGE_FILE = "message.json"
-
-# Часовой пояс МСК
+# Таймзона
 MSK = pytz.timezone("Europe/Moscow")
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+# === НАСТРОЙКИ ===
+TOKEN = os.getenv("TOKEN")
+GUILD_ID = int(os.getenv("GUILD_ID"))
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+ROLE_ID = int(os.getenv("ROLE_ID"))
+
+BIRTHDAYS_FILE = "birthdays.json"
+MESSAGE_FILE = "message.txt"
 
 
-# ==================== Работа с файлами ====================
-def load_birthdays() -> dict[str, str]:
+# === ФУНКЦИИ ===
+def load_birthdays() -> dict:
     if not os.path.exists(BIRTHDAYS_FILE):
         return {}
     with open(BIRTHDAYS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_birthdays(birthdays: dict[str, str]) -> None:
+def save_birthdays(data: dict):
     with open(BIRTHDAYS_FILE, "w", encoding="utf-8") as f:
-        json.dump(birthdays, f, indent=4, ensure_ascii=False)
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 
 def load_message() -> str:
     if not os.path.exists(MESSAGE_FILE):
-        return "🎉 Сегодня день рождения у {user}! Поздравляем 🥳"
+        return "Поздравляем {user} с Днём Рождения! 🎉"
     with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f).get(
-            "message", "🎉 Сегодня день рождения у {user}! Поздравляем 🥳"
-        )
+        return f.read()
 
 
-def save_message(msg: str) -> None:
+# === BOT ===
+intents = discord.Intents.default()
+intents.members = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+# === КОМАНДЫ ===
+@bot.tree.command(name="add_birthday", description="🎂 Добавить день рождения")
+async def add_birthday(interaction: discord.Interaction, user: discord.User, date: str):
+    birthdays = load_birthdays()
+    birthdays[str(user.id)] = date
+    save_birthdays(birthdays)
+    await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}")
+
+
+@bot.tree.command(name="remove_birthday", description="❌ Удалить день рождения")
+async def remove_birthday(interaction: discord.Interaction, user: discord.User):
+    birthdays = load_birthdays()
+    if str(user.id) in birthdays:
+        del birthdays[str(user.id)]
+        save_birthdays(birthdays)
+        await interaction.response.send_message(f"✅ ДР для {user.mention} удалён.")
+    else:
+        await interaction.response.send_message("⚠️ ДР для этого пользователя не найден.")
+
+
+@bot.tree.command(name="set_message", description="✏ Изменить текст поздравления")
+async def set_message(interaction: discord.Interaction, text: str):
     with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"message": msg}, f, indent=4, ensure_ascii=False)
+        f.write(text)
+    await interaction.response.send_message("✅ Сообщение обновлено.")
 
 
-def parse_date(date_str: str) -> datetime | None:
-    try:
-        return datetime.strptime(date_str, "%d/%m")
-    except ValueError:
-        return None
+@bot.tree.command(name="list_birthdays", description="📅 Показать список дней рождения")
+async def list_birthdays(interaction: discord.Interaction):
+    birthdays = load_birthdays()
+    if not birthdays:
+        await interaction.response.send_message("⚠️ Список дней рождений пуст.")
+        return
+
+    today = datetime.now(MSK)
+    current_year = today.year
+
+    def to_date(date_str: str) -> datetime:
+        day, month = map(int, date_str.split("/"))
+        date = datetime(current_year, month, day, tzinfo=MSK)
+        if date < today:
+            date = date.replace(year=current_year + 1)
+        return date
+
+    sorted_birthdays = sorted(birthdays.items(), key=lambda x: to_date(x[1]))
+
+    pages = []
+    embed = discord.Embed(title="🎉 Список дней рождения", color=discord.Color.blue())
+
+    for i, (user_id, date_str) in enumerate(sorted_birthdays, 1):
+        member = interaction.guild.get_member(int(user_id))
+        name = member.mention if member else f"ID {user_id}"
+        embed.add_field(name=f"{i}. {date_str}", value=name, inline=False)
+
+        if i % 25 == 0:
+            pages.append(embed)
+            embed = discord.Embed(
+                title="🎉 Список дней рождения (продолжение)",
+                color=discord.Color.blue()
+            )
+
+    if len(embed.fields) > 0:
+        pages.append(embed)
+
+    await interaction.response.send_message(embed=pages[0])
+    for page in pages[1:]:
+        await interaction.followup.send(embed=page)
 
 
-# ==================== Событие запуска ====================
-@bot.event
-async def on_ready():
-    try:
-        guild = discord.Object(id=GUILD_ID)
-        cmds = await bot.tree.sync(guild=guild)
-
-        print(f"✅ Синхронизировано {len(cmds)} команд для сервера {GUILD_ID}:")
-        for c in cmds:
-            print(f"  /{c.name} — {c.description}")
-
-        if not check_birthdays.is_running():
-            check_birthdays.start()
-        if not clear_roles.is_running():
-            clear_roles.start()
-        if not remind_birthdays.is_running():
-            remind_birthdays.start()
-
-        print("=====================================")
-        print(f"✅ Бот {bot.user} успешно запущен!")
-        print("=====================================")
-
-    except Exception as e:
-        print(f"❌ Ошибка при запуске: {e}")
-        sys.exit(1)
-
-
-# ==================== Таски ====================
+# === ТАСКИ ===
 @tasks.loop(hours=24)
 async def check_birthdays():
     guild = bot.get_guild(GUILD_ID)
@@ -180,165 +200,20 @@ async def remind_birthdays():
                 await channel.send(embed=embed)
 
 
-# ==================== Команды ====================
-@bot.tree.command(
-    name="add_birthday",
-    description="Добавить день рождения участнику (ДД/ММ)",
-    guild=discord.Object(id=GUILD_ID),
-)
-async def add_birthday(
-    interaction: discord.Interaction, member: discord.Member, date: str
-):
-    parsed = parse_date(date)
-    if not parsed:
-        await interaction.response.send_message(
-            "❌ Неверный формат. Используй ДД/ММ (например, 05/09)."
-        )
-        return
+# === START ===
+@bot.event
+async def on_ready():
+    try:
+        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print("✅ Команды синхронизированы.")
+    except Exception as e:
+        print(f"Ошибка синхронизации: {e}")
 
-    birthdays = load_birthdays()
-    birthdays[str(member.id)] = date
-    save_birthdays(birthdays)
-
-    await interaction.response.send_message(
-        f"✅ День рождения {member.mention} установлен как {date}"
-    )
+    check_birthdays.start()
+    clear_roles.start()
+    remind_birthdays.start()
+    print(f"✅ Бот {bot.user} запущен!")
 
 
-@bot.tree.command(
-    name="my_birthday",
-    description="Установить свой день рождения (ДД/ММ)",
-    guild=discord.Object(id=GUILD_ID),
-)
-async def my_birthday(interaction: discord.Interaction, date: str):
-    parsed = parse_date(date)
-    if not parsed:
-        await interaction.response.send_message(
-            "❌ Неверный формат. Используй ДД/ММ (например, 05/09).",
-            ephemeral=True,
-        )
-        return
-
-    birthdays = load_birthdays()
-    birthdays[str(interaction.user.id)] = date
-    save_birthdays(birthdays)
-
-    await interaction.response.send_message(
-        f"✅ Твой день рождения установлен как {date}",
-        ephemeral=True,
-    )
-
-
-@bot.tree.command(name="list_birthdays", description="Показать список всех дней рождения")
-async def list_birthdays(interaction: discord.Interaction):
-    birthdays = load_birthdays()
-    if not birthdays:
-        await interaction.response.send_message("📭 Список дней рождения пуст.")
-        return
-
-    # сортируем по дате
-    sorted_birthdays = sorted(
-        birthdays.items(),
-        key=lambda x: datetime.strptime(x[1], "%d/%m")
-    )
-
-    embeds = []
-    chunk = []
-    for i, (user_id, date) in enumerate(sorted_birthdays, start=1):
-        member = interaction.guild.get_member(int(user_id))
-        name = member.display_name if member else f"Пользователь {user_id}"
-        chunk.append((name, date))
-
-        # если собрали 25 записей или достигли конца списка
-        if len(chunk) == 25 or i == len(sorted_birthdays):
-            embed = discord.Embed(
-                title="📅 Список дней рождения",
-                color=discord.Color.blue()
-            )
-            for name, date in chunk:
-                embed.add_field(name=name, value=date, inline=False)
-            embeds.append(embed)
-            chunk = []
-
-    # ⚡ Discord разрешает сразу несколько embed-ов
-    await interaction.response.send_message(embeds=embeds)
-
-
-@bot.tree.command(
-    name="next_birthday",
-    description="Показать ближайший ДР",
-    guild=discord.Object(id=GUILD_ID),
-)
-async def next_birthday(interaction: discord.Interaction):
-    birthdays = load_birthdays()
-    if not birthdays:
-        await interaction.response.send_message("❌ Список пуст.")
-        return
-
-    today = datetime.now(MSK)
-    upcoming = []
-
-    guild = bot.get_guild(GUILD_ID)
-    if not guild:
-        await interaction.response.send_message("❌ Сервер не найден.")
-        return
-
-    for user_id, date_str in birthdays.items():
-        parsed = parse_date(date_str)
-        if not parsed:
-            continue
-        candidate = parsed.replace(year=today.year).replace(tzinfo=MSK)
-        if candidate < today:
-            candidate = candidate.replace(year=today.year + 1)
-        member = guild.get_member(int(user_id))
-        if member:
-            upcoming.append((candidate, member, date_str))
-
-    if not upcoming:
-        await interaction.response.send_message("❌ Нет корректных дат.")
-        return
-
-    nearest = min(upcoming, key=lambda x: x[0])
-    _, member, date_str = nearest
-
-    await interaction.response.send_message(
-        f"🎂 Ближайший день рождения у {member.mention}: {date_str}"
-    )
-
-
-@bot.tree.command(
-    name="remove_birthday",
-    description="Удалить день рождения участника",
-    guild=discord.Object(id=GUILD_ID),
-)
-async def remove_birthday(
-    interaction: discord.Interaction, member: discord.Member
-):
-    birthdays = load_birthdays()
-    if str(member.id) in birthdays:
-        del birthdays[str(member.id)]
-        save_birthdays(birthdays)
-        await interaction.response.send_message(
-            f"🗑 День рождения {member.mention} удалён."
-        )
-    else:
-        await interaction.response.send_message(
-            "❌ У этого участника нет сохранённого ДР."
-        )
-
-
-@bot.tree.command(
-    name="set_message",
-    description="Установить текст поздравления (используй {user})",
-    guild=discord.Object(id=GUILD_ID),
-)
-async def set_message(interaction: discord.Interaction, *, text: str):
-    save_message(text)
-    await interaction.response.send_message(
-        f"✅ Текст поздравления обновлён: {text}"
-    )
-
-
-# ==================== Запуск ====================
 keep_alive()
 bot.run(TOKEN)
