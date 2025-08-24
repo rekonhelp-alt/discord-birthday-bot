@@ -229,54 +229,39 @@ async def my_birthday(interaction: discord.Interaction, date: str):
     )
 
 
-@bot.tree.command(
-    name="list_birthdays",
-    description="Список всех ДР",
-    guild=discord.Object(id=GUILD_ID),
-)
+@bot.tree.command(name="list_birthdays", description="Показать список всех дней рождения")
 async def list_birthdays(interaction: discord.Interaction):
     birthdays = load_birthdays()
     if not birthdays:
-        await interaction.response.send_message("❌ Список пуст.")
+        await interaction.response.send_message("📭 Список дней рождения пуст.")
         return
 
-    guild = bot.get_guild(GUILD_ID)
-    if not guild:
-        await interaction.response.send_message("❌ Сервер не найден.")
-        return
-
-    today = datetime.now(MSK)
-    upcoming = []
-
-    for user_id, date_str in birthdays.items():
-        parsed = parse_date(date_str)
-        if not parsed:
-            continue
-        candidate = parsed.replace(year=today.year).replace(tzinfo=MSK)
-        if candidate < today:
-            candidate = candidate.replace(year=today.year + 1)
-        member = guild.get_member(int(user_id))
-        if member:
-            upcoming.append((candidate, member, date_str))
-
-    if not upcoming:
-        await interaction.response.send_message("❌ Нет корректных дат.")
-        return
-
-    upcoming.sort(key=lambda x: x[0])
-
-    embed = discord.Embed(
-        title="📅 Список дней рождения",
-        color=discord.Color.blue()
+    # сортируем по дате
+    sorted_birthdays = sorted(
+        birthdays.items(),
+        key=lambda x: datetime.strptime(x[1], "%d/%m")
     )
-    for _, member, date_str in upcoming:
-        embed.add_field(
-            name=member.display_name,
-            value=f"🎂 {date_str}",
-            inline=False
-        )
 
-    await interaction.response.send_message(embed=embed)
+    embeds = []
+    chunk = []
+    for i, (user_id, date) in enumerate(sorted_birthdays, start=1):
+        member = interaction.guild.get_member(int(user_id))
+        name = member.display_name if member else f"Пользователь {user_id}"
+        chunk.append((name, date))
+
+        # если собрали 25 записей или достигли конца списка
+        if len(chunk) == 25 or i == len(sorted_birthdays):
+            embed = discord.Embed(
+                title="📅 Список дней рождения",
+                color=discord.Color.blue()
+            )
+            for name, date in chunk:
+                embed.add_field(name=name, value=date, inline=False)
+            embeds.append(embed)
+            chunk = []
+
+    # ⚡ Discord разрешает сразу несколько embed-ов
+    await interaction.response.send_message(embeds=embeds)
 
 
 @bot.tree.command(
