@@ -73,8 +73,10 @@ def parse_date(date_str: str) -> datetime | None:
 @bot.event
 async def on_ready():
     try:
-        cmds = await bot.tree.sync()
-        print(f"✅ Синхронизировано {len(cmds)} глобальных команд:")
+        guild = discord.Object(id=GUILD_ID)
+        cmds = await bot.tree.sync(guild=guild)
+
+        print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
 
@@ -179,35 +181,59 @@ async def remind_birthdays():
 
 
 # ==================== Команды ====================
-@bot.tree.command(name="add_birthday", description="Добавить ДР участнику (ДД/ММ)")
-async def add_birthday(interaction: discord.Interaction, member: discord.Member, date: str):
+@bot.tree.command(
+    name="add_birthday",
+    description="Добавить день рождения участнику (ДД/ММ)",
+    guild=discord.Object(id=GUILD_ID),
+)
+async def add_birthday(
+    interaction: discord.Interaction, member: discord.Member, date: str
+):
     parsed = parse_date(date)
     if not parsed:
-        await interaction.response.send_message("❌ Неверный формат. Используй ДД/ММ.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Неверный формат. Используй ДД/ММ (например, 05/09)."
+        )
         return
 
     birthdays = load_birthdays()
     birthdays[str(member.id)] = date
     save_birthdays(birthdays)
 
-    await interaction.response.send_message(f"✅ День рождения {member.mention} установлен как {date}")
+    await interaction.response.send_message(
+        f"✅ День рождения {member.mention} установлен как {date}"
+    )
 
 
-@bot.tree.command(name="my_birthday", description="Установить свой ДР (ДД/ММ)")
+@bot.tree.command(
+    name="my_birthday",
+    description="Установить свой день рождения (ДД/ММ)",
+    guild=discord.Object(id=GUILD_ID),
+)
 async def my_birthday(interaction: discord.Interaction, date: str):
     parsed = parse_date(date)
     if not parsed:
-        await interaction.response.send_message("❌ Неверный формат. Используй ДД/ММ.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Неверный формат. Используй ДД/ММ (например, 05/09).",
+            ephemeral=True,
+        )
         return
 
     birthdays = load_birthdays()
     birthdays[str(interaction.user.id)] = date
     save_birthdays(birthdays)
 
-    await interaction.response.send_message(f"✅ Твой день рождения установлен как {date}", ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Твой день рождения установлен как {date}",
+        ephemeral=True,
+    )
 
 
-@bot.tree.command(name="list_birthdays", description="Список всех ДР")
+@bot.tree.command(
+    name="list_birthdays",
+    description="Список всех ДР",
+    guild=discord.Object(id=GUILD_ID),
+)
 async def list_birthdays(interaction: discord.Interaction):
     birthdays = load_birthdays()
     if not birthdays:
@@ -239,14 +265,28 @@ async def list_birthdays(interaction: discord.Interaction):
 
     upcoming.sort(key=lambda x: x[0])
 
-    embed = discord.Embed(title="📅 Список дней рождения", color=discord.Color.blue())
-    for _, member, date_str in upcoming[:25]:  # ограничение на 25 полей
-        embed.add_field(name=member.display_name, value=f"🎂 {date_str}", inline=False)
+    # Разбиваем на страницы по 25
+    chunks = [upcoming[i:i + 25] for i in range(0, len(upcoming), 25)]
 
-    await interaction.response.send_message(embed=embed)
+    for page_num, chunk in enumerate(chunks, start=1):
+        embed = discord.Embed(
+            title=f"📅 Список дней рождения (стр. {page_num}/{len(chunks)})",
+            color=discord.Color.blue()
+        )
+        for _, member, date_str in chunk:
+            embed.add_field(
+                name=member.display_name,
+                value=f"🎂 {date_str}",
+                inline=False
+            )
+        await interaction.followup.send(embed=embed) if page_num > 1 else await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="next_birthday", description="Показать ближайший ДР")
+@bot.tree.command(
+    name="next_birthday",
+    description="Показать ближайший ДР",
+    guild=discord.Object(id=GUILD_ID),
+)
 async def next_birthday(interaction: discord.Interaction):
     birthdays = load_birthdays()
     if not birthdays:
@@ -279,24 +319,42 @@ async def next_birthday(interaction: discord.Interaction):
     nearest = min(upcoming, key=lambda x: x[0])
     _, member, date_str = nearest
 
-    await interaction.response.send_message(f"🎂 Ближайший день рождения у {member.mention}: {date_str}")
+    await interaction.response.send_message(
+        f"🎂 Ближайший день рождения у {member.mention}: {date_str}"
+    )
 
 
-@bot.tree.command(name="remove_birthday", description="Удалить ДР участника")
-async def remove_birthday(interaction: discord.Interaction, member: discord.Member):
+@bot.tree.command(
+    name="remove_birthday",
+    description="Удалить день рождения участника",
+    guild=discord.Object(id=GUILD_ID),
+)
+async def remove_birthday(
+    interaction: discord.Interaction, member: discord.Member
+):
     birthdays = load_birthdays()
     if str(member.id) in birthdays:
         del birthdays[str(member.id)]
         save_birthdays(birthdays)
-        await interaction.response.send_message(f"🗑 День рождения {member.mention} удалён.")
+        await interaction.response.send_message(
+            f"🗑 День рождения {member.mention} удалён."
+        )
     else:
-        await interaction.response.send_message("❌ У этого участника нет сохранённого ДР.")
+        await interaction.response.send_message(
+            "❌ У этого участника нет сохранённого ДР."
+        )
 
 
-@bot.tree.command(name="set_message", description="Установить текст поздравления (используй {user})")
+@bot.tree.command(
+    name="set_message",
+    description="Установить текст поздравления (используй {user})",
+    guild=discord.Object(id=GUILD_ID),
+)
 async def set_message(interaction: discord.Interaction, *, text: str):
     save_message(text)
-    await interaction.response.send_message("✅ Текст поздравления обновлён.")
+    await interaction.response.send_message(
+        f"✅ Текст поздравления обновлён: {text}"
+    )
 
 
 # ==================== Запуск ====================
