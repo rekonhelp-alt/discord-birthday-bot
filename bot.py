@@ -74,8 +74,13 @@ def parse_date(date_str: str) -> datetime | None:
 async def on_ready():
     try:
         guild = discord.Object(id=GUILD_ID)
-        cmds = await bot.tree.sync(guild=guild)
 
+        # 🔥 очищаем все старые команды на сервере
+        await bot.tree.sync(guild=guild)
+        await bot.tree.clear_commands(guild=guild)
+        await bot.tree.sync(guild=guild)
+
+        cmds = await bot.tree.sync(guild=guild)
         print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
@@ -94,7 +99,6 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Ошибка при запуске: {e}")
         sys.exit(1)
-
 
 # ==================== Таски ====================
 @tasks.loop(hours=24)
