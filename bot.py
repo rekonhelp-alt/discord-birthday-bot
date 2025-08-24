@@ -101,7 +101,8 @@ async def list_birthdays(interaction: discord.Interaction):
         name = member.mention if member else f"ID {user_id}"
         embed.add_field(name=f"{i}. {date_str}", value=name, inline=False)
 
-        if i % 25 == 0:
+        # если превысили лимит 25 — создаём новую страницу
+        if len(embed.fields) == 25:
             pages.append(embed)
             embed = discord.Embed(
                 title="🎉 Список дней рождения (продолжение)",
@@ -181,7 +182,7 @@ async def remind_birthdays():
     if not isinstance(channel, discord.TextChannel):
         return
 
-    role = discord.utils.get(guild.roles, name="Madison")
+    role = guild.get_role(ROLE_ID)
     if not role:
         return
 
