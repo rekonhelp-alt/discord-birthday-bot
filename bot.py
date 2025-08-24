@@ -73,9 +73,10 @@ def parse_date(date_str: str) -> datetime | None:
 @bot.event
 async def on_ready():
     try:
-        cmds = await bot.tree.sync()
+        guild = discord.Object(id=GUILD_ID)
+        cmds = await bot.tree.sync(guild=guild)
 
-        print(f"✅ Синхронизировано {len(cmds)} глобальных команд:")
+        print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
 
@@ -160,7 +161,7 @@ async def remind_birthdays():
     if not isinstance(channel, discord.TextChannel):
         return
 
-    role = discord.utils.get(guild.roles, id=ROLE_ID)
+    role = discord.utils.get(guild.roles, name="Madison")
     if not role:
         return
 
@@ -182,7 +183,8 @@ async def remind_birthdays():
 # ==================== Команды ====================
 @bot.tree.command(
     name="add_birthday",
-    description="Добавить день рождения участнику (ДД/ММ)"
+    description="Добавить день рождения участнику (ДД/ММ)",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def add_birthday(
     interaction: discord.Interaction, member: discord.Member, date: str
@@ -205,7 +207,8 @@ async def add_birthday(
 
 @bot.tree.command(
     name="my_birthday",
-    description="Установить свой день рождения (ДД/ММ)"
+    description="Установить свой день рождения (ДД/ММ)",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def my_birthday(interaction: discord.Interaction, date: str):
     parsed = parse_date(date)
@@ -228,7 +231,8 @@ async def my_birthday(interaction: discord.Interaction, date: str):
 
 @bot.tree.command(
     name="list_birthdays",
-    description="Список всех ДР"
+    description="Список всех ДР",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def list_birthdays(interaction: discord.Interaction):
     birthdays = load_birthdays()
@@ -261,20 +265,19 @@ async def list_birthdays(interaction: discord.Interaction):
 
     upcoming.sort(key=lambda x: x[0])
 
-    # Разбиваем на части по 25 человек
     embeds = []
-    for i in range(0, len(upcoming), 25):
-        chunk = upcoming[i:i+25]
-        embed = discord.Embed(
-            title="📅 Список дней рождения" if i == 0 else "Продолжение списка:",
-            color=discord.Color.blue()
-        )
-        for _, member, date_str in chunk:
-            embed.add_field(
-                name=member.display_name,
-                value=f"🎂 {date_str}",
-                inline=False
-            )
+    embed = discord.Embed(title="📅 Список дней рождения", color=discord.Color.blue())
+    count = 0
+
+    for _, member, date_str in upcoming:
+        embed.add_field(name=member.display_name, value=f"🎂 {date_str}", inline=False)
+        count += 1
+        if count == 25:
+            embeds.append(embed)
+            embed = discord.Embed(title="📅 Продолжение списка", color=discord.Color.blue())
+            count = 0
+
+    if count > 0:
         embeds.append(embed)
 
     await interaction.response.send_message(embeds=embeds)
@@ -282,7 +285,8 @@ async def list_birthdays(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="next_birthday",
-    description="Показать ближайший ДР"
+    description="Показать ближайший ДР",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def next_birthday(interaction: discord.Interaction):
     birthdays = load_birthdays()
@@ -323,7 +327,8 @@ async def next_birthday(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="remove_birthday",
-    description="Удалить день рождения участника"
+    description="Удалить день рождения участника",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def remove_birthday(
     interaction: discord.Interaction, member: discord.Member
@@ -343,7 +348,8 @@ async def remove_birthday(
 
 @bot.tree.command(
     name="set_message",
-    description="Установить текст поздравления (используй {user})"
+    description="Установить текст поздравления (используй {user})",
+    guild=discord.Object(id=GUILD_ID),
 )
 async def set_message(interaction: discord.Interaction, *, text: str):
     save_message(text)
