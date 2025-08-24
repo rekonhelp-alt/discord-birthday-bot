@@ -74,14 +74,9 @@ def parse_date(date_str: str) -> datetime | None:
 async def on_ready():
     try:
         guild = discord.Object(id=GUILD_ID)
-
-        # 🔥 сначала очищаем все команды для этого сервера
-        bot.tree.clear_commands(guild=guild)
-
-        # 🔄 потом заново синхронизируем
         cmds = await bot.tree.sync(guild=guild)
 
-        print(f"✅ Синхронизировано {len(cmds)} команд на сервере {GUILD_ID}:")
+        print(f"✅ Синхронизировано {len(cmds)} команд для сервера {GUILD_ID}:")
         for c in cmds:
             print(f"  /{c.name} — {c.description}")
 
@@ -99,6 +94,7 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Ошибка при запуске: {e}")
         sys.exit(1)
+
 
 # ==================== Таски ====================
 @tasks.loop(hours=24)
@@ -269,22 +265,18 @@ async def list_birthdays(interaction: discord.Interaction):
 
     upcoming.sort(key=lambda x: x[0])
 
-    embeds = []
-    embed = discord.Embed(title="📅 Список дней рождения", color=discord.Color.blue())
-    count = 0
-
+    embed = discord.Embed(
+        title="📅 Список дней рождения",
+        color=discord.Color.blue()
+    )
     for _, member, date_str in upcoming:
-        embed.add_field(name=member.display_name, value=f"🎂 {date_str}", inline=False)
-        count += 1
-        if count == 25:
-            embeds.append(embed)
-            embed = discord.Embed(title="📅 Продолжение списка", color=discord.Color.blue())
-            count = 0
+        embed.add_field(
+            name=member.display_name,
+            value=f"🎂 {date_str}",
+            inline=False
+        )
 
-    if count > 0:
-        embeds.append(embed)
-
-    await interaction.response.send_message(embeds=embeds)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(
