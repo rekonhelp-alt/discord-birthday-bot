@@ -1,11 +1,12 @@
 import os
 import discord
+import psycopg2
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta
 from contextlib import suppress
 import pytz
-import psycopg2
+
 from keep_alive import keep_alive  # если не нужен, убери
 
 # ─── Настройки ────────────────────────────────────────────────
