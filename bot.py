@@ -148,7 +148,7 @@ def format_money(amount: int) -> str:
 balance = 0
 
 
-@tree.command(name="add_money", description="Добавить деньги на счёт организации")
+@bot.tree.command(name="add_money", description="Добавить деньги на счёт организации")
 async def add_money(interaction: discord.Interaction, amount: int):
     global balance
     balance += amount
@@ -157,7 +157,7 @@ async def add_money(interaction: discord.Interaction, amount: int):
     )
 
 
-@tree.command(name="remove_money", description="Снять деньги со счёта организации")
+@bot.tree.command(name="remove_money", description="Снять деньги со счёта организации")
 async def remove_money(interaction: discord.Interaction, amount: int):
     global balance
     if amount > balance:
@@ -169,7 +169,7 @@ async def remove_money(interaction: discord.Interaction, amount: int):
         )
 
 
-@tree.command(name="balance", description="Посмотреть баланс организации")
+@bot.tree.command(name="balance", description="Посмотреть баланс организации")
 async def show_balance(interaction: discord.Interaction):
     await interaction.response.send_message(
         f"🏦 На балансе организации: {format_money(balance)}"
