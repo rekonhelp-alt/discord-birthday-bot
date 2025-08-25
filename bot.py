@@ -139,27 +139,41 @@ async def set_message(interaction: discord.Interaction, text: str):
     save_message(text)
     await interaction.response.send_message("✅ Шаблон обновлён", ephemeral=True)
 
-# ─── Калькулятор ─────────────────────────────────────────────
-@bot.tree.command(name="add_income", description="Добавить доход в бюджет")
-@app_commands.describe(amount="Сумма дохода")
-async def add_income(interaction: discord.Interaction, amount: int):
-    budget = load_budget()
-    budget["balance"] += amount
-    save_budget(budget)
-    await interaction.response.send_message(f"💰 Доход {amount} добавлен. Новый баланс: {budget['balance']}")
+# Функция для красивого форматирования суммы
+def format_money(amount: int) -> str:
+    return f"{amount:,}".replace(",", ".") + "$"
 
-@bot.tree.command(name="add_expense", description="Добавить расход из бюджета")
-@app_commands.describe(amount="Сумма расхода")
-async def add_expense(interaction: discord.Interaction, amount: int):
-    budget = load_budget()
-    budget["balance"] -= amount
-    save_budget(budget)
-    await interaction.response.send_message(f"💸 Расход {amount} списан. Новый баланс: {budget['balance']}")
 
-@bot.tree.command(name="balance", description="Показать баланс бюджета")
-async def balance(interaction: discord.Interaction):
-    budget = load_budget()
-    await interaction.response.send_message(f"📊 Текущий баланс: {budget['balance']}")
+# Переменная для хранения баланса
+balance = 0
+
+
+@tree.command(name="add_money", description="Добавить деньги на счёт организации")
+async def add_money(interaction: discord.Interaction, amount: int):
+    global balance
+    balance += amount
+    await interaction.response.send_message(
+        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(balance)}"
+    )
+
+
+@tree.command(name="remove_money", description="Снять деньги со счёта организации")
+async def remove_money(interaction: discord.Interaction, amount: int):
+    global balance
+    if amount > balance:
+        await interaction.response.send_message("❌ Недостаточно средств на счёте!")
+    else:
+        balance -= amount
+        await interaction.response.send_message(
+            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(balance)}"
+        )
+
+
+@tree.command(name="balance", description="Посмотреть баланс организации")
+async def show_balance(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        f"🏦 На балансе организации: {format_money(balance)}"
+    )
 
 # ─── Задачи ──────────────────────────────────────────────────
 @tasks.loop(hours=24)
