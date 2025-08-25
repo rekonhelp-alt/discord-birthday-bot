@@ -1,72 +1,55 @@
 import os
+import json
 import discord
-import psycopg2
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta
 from contextlib import suppress
 import pytz
-
-from keep_alive import keep_alive  # если не нужен, убери
+from keep_alive import keep_alive  # если не нужен, можешь убрать
 
 # ─── Настройки ────────────────────────────────────────────────
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")  # вставь напрямую, если тестируешь локально
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 ROLE_ID = int(os.getenv("ROLE_ID", "0"))
-DATABASE_URL = os.getenv("DATABASE_URL")  # Render даст эту переменную
 
 MSK = pytz.timezone("Europe/Moscow")
 
-# ─── Подключение к БД ─────────────────────────────────────────
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-cur = conn.cursor()
+BIRTHDAYS_FILE = "birthdays.json"
+MESSAGE_FILE = "message.txt"
+BUDGET_FILE = "budget.json"
 
-# создаём таблицы, если их нет
-cur.execute("""
-CREATE TABLE IF NOT EXISTS birthdays (
-    user_id TEXT PRIMARY KEY,
-    date TEXT NOT NULL
-);
-""")
-cur.execute("""
-CREATE TABLE IF NOT EXISTS budget (
-    id SERIAL PRIMARY KEY,
-    balance INTEGER NOT NULL
-);
-""")
-conn.commit()
+# ─── Работа с файлами ─────────────────────────────────────────
+def load_birthdays():
+    if not os.path.exists(BIRTHDAYS_FILE):
+        return {}
+    with open(BIRTHDAYS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# инициализация бюджета
-cur.execute("SELECT COUNT(*) FROM budget;")
-if cur.fetchone()[0] == 0:
-    cur.execute("INSERT INTO budget (balance) VALUES (0);")
-    conn.commit()
+def save_birthdays(data):
+    with open(BIRTHDAYS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# ─── Функции работы с БД ─────────────────────────────────────
-def get_birthdays():
-    cur.execute("SELECT user_id, date FROM birthdays;")
-    return dict(cur.fetchall())
+def load_message():
+    if not os.path.exists(MESSAGE_FILE):
+        return "{user}, поздравляем с Днём Рождения! 🎉"
+    with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
+        return f.read()
 
-def set_birthday(user_id: int, date: str):
-    cur.execute(
-        "INSERT INTO birthdays (user_id, date) VALUES (%s, %s) "
-        "ON CONFLICT (user_id) DO UPDATE SET date = EXCLUDED.date;",
-        (str(user_id), date)
-    )
-    conn.commit()
+def save_message(text):
+    with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+        f.write(text)
 
-def remove_birthday_db(user_id: int):
-    cur.execute("DELETE FROM birthdays WHERE user_id = %s;", (str(user_id),))
-    conn.commit()
+def load_budget():
+    if not os.path.exists(BUDGET_FILE):
+        return {"balance": 0}
+    with open(BUDGET_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-def get_balance():
-    cur.execute("SELECT balance FROM budget ORDER BY id LIMIT 1;")
-    return cur.fetchone()[0]
-
-def update_balance(amount: int):
-    cur.execute("UPDATE budget SET balance = balance + %s;", (amount,))
-    conn.commit()
+def save_budget(data):
+    with open(BUDGET_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 # ─── Бот ─────────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -90,12 +73,14 @@ async def on_ready():
 @bot.tree.command(name="add_birthday", description="Добавить день рождения участнику")
 @app_commands.describe(user="Участник", date="Дата в формате ДД/ММ")
 async def add_birthday(interaction: discord.Interaction, user: discord.Member, date: str):
-    set_birthday(user.id, date)
-    await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}")
+    birthdays = load_birthdays()
+    birthdays[str(user.id)] = date
+    save_birthdays(birthdays)
+    await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}", ephemeral=True)
 
 @bot.tree.command(name="my_birthday", description="Показать твой день рождения")
 async def my_birthday(interaction: discord.Interaction):
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     date = birthdays.get(str(interaction.user.id))
     if date:
         await interaction.response.send_message(f"🎂 Твой ДР: {date}", ephemeral=True)
@@ -105,16 +90,17 @@ async def my_birthday(interaction: discord.Interaction):
 @bot.tree.command(name="remove_birthday", description="Удалить день рождения участника")
 @app_commands.describe(user="Участник")
 async def remove_birthday(interaction: discord.Interaction, user: discord.Member):
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     if str(user.id) in birthdays:
-        remove_birthday_db(user.id)
+        birthdays.pop(str(user.id))
+        save_birthdays(birthdays)
         await interaction.response.send_message(f"🗑 ДР {user.mention} удалён")
     else:
         await interaction.response.send_message("❌ У пользователя нет сохранённого ДР")
 
 @bot.tree.command(name="list_birthdays", description="Показать все дни рождения")
 async def list_birthdays(interaction: discord.Interaction):
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     if not birthdays:
         await interaction.response.send_message("📭 Список пуст")
         return
@@ -132,18 +118,25 @@ async def list_birthdays(interaction: discord.Interaction):
             continue
     parsed.sort(key=lambda x: x[0])
 
-    text = []
+    pages = []
+    chunk = []
     for _, user_id, date in parsed:
         member = interaction.guild.get_member(int(user_id))
         name = member.display_name if member else f"ID:{user_id}"
-        text.append(f"**{name}** — {date}")
+        chunk.append(f"**{name}** — {date}")
+        if len(chunk) == 20:
+            pages.append("\n".join(chunk))
+            chunk = []
+    if chunk:
+        pages.append("\n".join(chunk))
 
-    embed = discord.Embed(title="🎂 Дни рождения", description="\n".join(text), color=discord.Color.gold())
-    await interaction.response.send_message(embed=embed)
+    for page in pages:
+        embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
+        await interaction.channel.send(embed=embed)
 
 @bot.tree.command(name="next_birthday", description="Показать ближайший день рождения")
 async def next_birthday(interaction: discord.Interaction):
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     if not birthdays:
         await interaction.response.send_message("📭 Список пуст")
         return
@@ -175,32 +168,43 @@ async def next_birthday(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
-# ─── Команды бюджета ─────────────────────────────────────────
+@bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
+async def set_message(interaction: discord.Interaction, text: str):
+    save_message(text)
+    await interaction.response.send_message("✅ Шаблон обновлён")
+
+# Функция для красивого форматирования суммы
 def format_money(amount: int) -> str:
     return f"{amount:,}".replace(",", ".") + "$"
 
-@bot.tree.command(name="balance", description="Посмотреть баланс организации")
-async def show_balance(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        f"🏦 На балансе организации: {format_money(get_balance())}"
-    )
-
+# ─── Команды бюджета ─────────────────────────────────────────
 @bot.tree.command(name="add_money", description="Добавить деньги на счёт организации")
 async def add_money(interaction: discord.Interaction, amount: int):
-    update_balance(amount)
+    budget = load_budget()
+    budget["balance"] += amount
+    save_budget(budget)
     await interaction.response.send_message(
-        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(get_balance())}"
+        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
     )
 
 @bot.tree.command(name="remove_money", description="Снять деньги со счёта организации")
 async def remove_money(interaction: discord.Interaction, amount: int):
-    if amount > get_balance():
+    budget = load_budget()
+    if amount > budget["balance"]:
         await interaction.response.send_message("❌ Недостаточно средств на счёте!")
     else:
-        update_balance(-amount)
+        budget["balance"] -= amount
+        save_budget(budget)
         await interaction.response.send_message(
-            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(get_balance())}"
+            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
         )
+
+@bot.tree.command(name="balance", description="Посмотреть баланс организации")
+async def show_balance(interaction: discord.Interaction):
+    budget = load_budget()
+    await interaction.response.send_message(
+        f"🏦 На балансе организации: {format_money(budget['balance'])}"
+    )
 
 # ─── Задачи ──────────────────────────────────────────────────
 @tasks.loop(hours=24)
@@ -209,7 +213,7 @@ async def check_birthdays():
     if not guild:
         return
     today = datetime.now(MSK).strftime("%d/%m")
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     channel = bot.get_channel(CHANNEL_ID)
     role = guild.get_role(ROLE_ID)
     if not channel or not role:
@@ -221,11 +225,8 @@ async def check_birthdays():
             if member:
                 with suppress(discord.Forbidden):
                     await member.add_roles(role)
-                embed = discord.Embed(
-                    title="🎉 Поздравляем!",
-                    description=f"{member.mention}, поздравляем с Днём Рождения! 🎉",
-                    color=discord.Color.gold()
-                )
+                msg = load_message().replace("{user}", member.mention)
+                embed = discord.Embed(title="🎉 Поздравляем!", description=msg, color=discord.Color.gold())
                 await channel.send(embed=embed)
 
 @tasks.loop(hours=24)
@@ -234,7 +235,7 @@ async def clear_roles():
     if not guild:
         return
     today = datetime.now(MSK).strftime("%d/%m")
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     role = guild.get_role(ROLE_ID)
     if not role:
         return
@@ -251,7 +252,7 @@ async def remind_birthdays():
     if not guild:
         return
     tomorrow = (datetime.now(MSK) + timedelta(days=1)).strftime("%d/%m")
-    birthdays = get_birthdays()
+    birthdays = load_birthdays()
     channel = bot.get_channel(CHANNEL_ID)
     role = guild.get_role(ROLE_ID)
     if not channel or not role:
