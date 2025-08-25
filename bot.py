@@ -18,7 +18,7 @@ MSK = pytz.timezone("Europe/Moscow")
 
 BIRTHDAYS_FILE = "birthdays.json"
 MESSAGE_FILE = "message.txt"
-
+BUDGET_FILE = "budget.json"
 
 # ─── Работа с файлами ─────────────────────────────────────────
 def load_birthdays():
@@ -27,11 +27,9 @@ def load_birthdays():
     with open(BIRTHDAYS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def save_birthdays(data):
     with open(BIRTHDAYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-
 
 def load_message():
     if not os.path.exists(MESSAGE_FILE):
@@ -39,17 +37,24 @@ def load_message():
     with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
         return f.read()
 
-
 def save_message(text):
     with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
         f.write(text)
 
+def load_budget():
+    if not os.path.exists(BUDGET_FILE):
+        return {"balance": 0}
+    with open(BUDGET_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_budget(data):
+    with open(BUDGET_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 # ─── Бот ─────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 
 @bot.event
 async def on_ready():
@@ -64,8 +69,7 @@ async def on_ready():
     clear_roles.start()
     remind_birthdays.start()
 
-
-# ─── Slash-команды ───────────────────────────────────────────
+# ─── Slash-команды ДР ─────────────────────────────────────────
 @bot.tree.command(name="add_birthday", description="Добавить день рождения участнику")
 @app_commands.describe(user="Участник", date="Дата в формате ДД/ММ")
 async def add_birthday(interaction: discord.Interaction, user: discord.Member, date: str):
@@ -73,7 +77,6 @@ async def add_birthday(interaction: discord.Interaction, user: discord.Member, d
     birthdays[str(user.id)] = date
     save_birthdays(birthdays)
     await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}", ephemeral=True)
-
 
 @bot.tree.command(name="my_birthday", description="Показать твой день рождения")
 async def my_birthday(interaction: discord.Interaction):
@@ -83,7 +86,6 @@ async def my_birthday(interaction: discord.Interaction):
         await interaction.response.send_message(f"🎂 Твой ДР: {date}", ephemeral=True)
     else:
         await interaction.response.send_message("❌ Ты ещё не добавил ДР", ephemeral=True)
-
 
 @bot.tree.command(name="remove_birthday", description="Удалить день рождения участника")
 @app_commands.describe(user="Участник")
@@ -96,7 +98,6 @@ async def remove_birthday(interaction: discord.Interaction, user: discord.Member
     else:
         await interaction.response.send_message("❌ У пользователя нет сохранённого ДР", ephemeral=True)
 
-
 @bot.tree.command(name="list_birthdays", description="Показать все дни рождения")
 async def list_birthdays(interaction: discord.Interaction):
     birthdays = load_birthdays()
@@ -104,7 +105,6 @@ async def list_birthdays(interaction: discord.Interaction):
         await interaction.response.send_message("📭 Список пуст")
         return
 
-    # сортировка по дате в году (с ближайших)
     today = datetime.now(MSK)
     parsed = []
     for user_id, date in birthdays.items():
@@ -124,7 +124,7 @@ async def list_birthdays(interaction: discord.Interaction):
         member = interaction.guild.get_member(int(user_id))
         name = member.display_name if member else f"ID:{user_id}"
         chunk.append(f"**{name}** — {date}")
-        if len(chunk) == 20:  # чтобы не было лимита
+        if len(chunk) == 20:
             pages.append("\n".join(chunk))
             chunk = []
     if chunk:
@@ -134,12 +134,32 @@ async def list_birthdays(interaction: discord.Interaction):
         embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
         await interaction.channel.send(embed=embed)
 
-
 @bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
 async def set_message(interaction: discord.Interaction, text: str):
     save_message(text)
     await interaction.response.send_message("✅ Шаблон обновлён", ephemeral=True)
 
+# ─── Калькулятор ─────────────────────────────────────────────
+@bot.tree.command(name="add_income", description="Добавить доход в бюджет")
+@app_commands.describe(amount="Сумма дохода")
+async def add_income(interaction: discord.Interaction, amount: int):
+    budget = load_budget()
+    budget["balance"] += amount
+    save_budget(budget)
+    await interaction.response.send_message(f"💰 Доход {amount} добавлен. Новый баланс: {budget['balance']}")
+
+@bot.tree.command(name="add_expense", description="Добавить расход из бюджета")
+@app_commands.describe(amount="Сумма расхода")
+async def add_expense(interaction: discord.Interaction, amount: int):
+    budget = load_budget()
+    budget["balance"] -= amount
+    save_budget(budget)
+    await interaction.response.send_message(f"💸 Расход {amount} списан. Новый баланс: {budget['balance']}")
+
+@bot.tree.command(name="balance", description="Показать баланс бюджета")
+async def balance(interaction: discord.Interaction):
+    budget = load_budget()
+    await interaction.response.send_message(f"📊 Текущий баланс: {budget['balance']}")
 
 # ─── Задачи ──────────────────────────────────────────────────
 @tasks.loop(hours=24)
@@ -164,7 +184,6 @@ async def check_birthdays():
                 embed = discord.Embed(title="🎉 Поздравляем!", description=msg, color=discord.Color.gold())
                 await channel.send(embed=embed)
 
-
 @tasks.loop(hours=24)
 async def clear_roles():
     guild = bot.get_guild(GUILD_ID)
@@ -181,7 +200,6 @@ async def clear_roles():
             if member and role in member.roles:
                 with suppress(discord.Forbidden):
                     await member.remove_roles(role)
-
 
 @tasks.loop(hours=24)
 async def remind_birthdays():
@@ -206,7 +224,6 @@ async def remind_birthdays():
                 )
                 await channel.send(embed=embed)
 
-
 # ─── Запуск ───────────────────────────────────────────────────
-keep_alive()  # если не нужен Render-хак, можешь закомментить
+keep_alive()
 bot.run(TOKEN)
