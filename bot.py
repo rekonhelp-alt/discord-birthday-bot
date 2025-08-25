@@ -16,16 +16,21 @@ ROLE_ID = int(os.getenv("ROLE_ID", "0"))
 
 MSK = pytz.timezone("Europe/Moscow")
 
-BIRTHDAYS_FILE = "birthdays.json"
-MESSAGE_FILE = "message.txt"
-BUDGET_FILE = "budget.json"
+# всегда сохраняем файлы рядом с bot.py
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BIRTHDAYS_FILE = os.path.join(BASE_DIR, "birthdays.json")
+MESSAGE_FILE = os.path.join(BASE_DIR, "message.txt")
+BUDGET_FILE = os.path.join(BASE_DIR, "budget.json")
 
 # ─── Работа с файлами ─────────────────────────────────────────
 def load_birthdays():
     if not os.path.exists(BIRTHDAYS_FILE):
         return {}
-    with open(BIRTHDAYS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(BIRTHDAYS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
 
 def save_birthdays(data):
     with open(BIRTHDAYS_FILE, "w", encoding="utf-8") as f:
@@ -44,8 +49,11 @@ def save_message(text):
 def load_budget():
     if not os.path.exists(BUDGET_FILE):
         return {"balance": 0}
-    with open(BUDGET_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(BUDGET_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {"balance": 0}
 
 def save_budget(data):
     with open(BUDGET_FILE, "w", encoding="utf-8") as f:
@@ -139,40 +147,36 @@ async def set_message(interaction: discord.Interaction, text: str):
     save_message(text)
     await interaction.response.send_message("✅ Шаблон обновлён", ephemeral=True)
 
-# Функция для красивого форматирования суммы
+# ─── Финансы ─────────────────────────────────────────────────
 def format_money(amount: int) -> str:
     return f"{amount:,}".replace(",", ".") + "$"
 
-
-# Переменная для хранения баланса
-balance = 0
-
-
 @bot.tree.command(name="add_money", description="Добавить деньги на счёт организации")
 async def add_money(interaction: discord.Interaction, amount: int):
-    global balance
-    balance += amount
+    budget = load_budget()
+    budget["balance"] += amount
+    save_budget(budget)
     await interaction.response.send_message(
-        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(balance)}"
+        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
     )
-
 
 @bot.tree.command(name="remove_money", description="Снять деньги со счёта организации")
 async def remove_money(interaction: discord.Interaction, amount: int):
-    global balance
-    if amount > balance:
+    budget = load_budget()
+    if amount > budget["balance"]:
         await interaction.response.send_message("❌ Недостаточно средств на счёте!")
     else:
-        balance -= amount
+        budget["balance"] -= amount
+        save_budget(budget)
         await interaction.response.send_message(
-            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(balance)}"
+            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
         )
-
 
 @bot.tree.command(name="balance", description="Посмотреть баланс организации")
 async def show_balance(interaction: discord.Interaction):
+    budget = load_budget()
     await interaction.response.send_message(
-        f"🏦 На балансе организации: {format_money(balance)}"
+        f"🏦 На балансе организации: {format_money(budget['balance'])}"
     )
 
 # ─── Задачи ──────────────────────────────────────────────────
