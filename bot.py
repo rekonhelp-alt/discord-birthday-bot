@@ -16,7 +16,7 @@ ROLE_ID = int(os.getenv("ROLE_ID", "0"))
 
 MSK = pytz.timezone("Europe/Moscow")
 
-# всегда сохраняем файлы рядом с bot.py
+# Всегда сохраняем файлы рядом с bot.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BIRTHDAYS_FILE = os.path.join(BASE_DIR, "birthdays.json")
 MESSAGE_FILE = os.path.join(BASE_DIR, "message.txt")
@@ -108,9 +108,11 @@ async def remove_birthday(interaction: discord.Interaction, user: discord.Member
 
 @bot.tree.command(name="list_birthdays", description="Показать все дни рождения")
 async def list_birthdays(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)  # ✅ исправление "не отвечает"
+
     birthdays = load_birthdays()
     if not birthdays:
-        await interaction.response.send_message("📭 Список пуст")
+        await interaction.followup.send("📭 Список пуст")
         return
 
     today = datetime.now(MSK)
@@ -140,7 +142,7 @@ async def list_birthdays(interaction: discord.Interaction):
 
     for page in pages:
         embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
-        await interaction.channel.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
 async def set_message(interaction: discord.Interaction, text: str):
