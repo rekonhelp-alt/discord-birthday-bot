@@ -1,11 +1,13 @@
 import os
+
+import binary
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta
 from contextlib import suppress
 import pytz
-import psycopg2
+import psycopg2-binary
 from keep_alive import keep_alive  # если не нужен, убери
 
 # ─── Настройки ────────────────────────────────────────────────
@@ -18,7 +20,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # Render даст эту переме�
 MSK = pytz.timezone("Europe/Moscow")
 
 # ─── Подключение к БД ─────────────────────────────────────────
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+conn = psycopg2-binary.connect(DATABASE_URL, sslmode="require")
 cur = conn.cursor()
 
 # создаём таблицы, если их нет
