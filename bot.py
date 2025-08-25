@@ -69,7 +69,7 @@ async def on_ready():
     clear_roles.start()
     remind_birthdays.start()
 
-# ─── Slash-команды ДР ─────────────────────────────────────────
+# ─── Slash-команды ─────────────────────────────────────────
 @bot.tree.command(name="add_birthday", description="Добавить день рождения участнику")
 @app_commands.describe(user="Участник", date="Дата в формате ДД/ММ")
 async def add_birthday(interaction: discord.Interaction, user: discord.Member, date: str):
@@ -96,7 +96,7 @@ async def remove_birthday(interaction: discord.Interaction, user: discord.Member
         save_birthdays(birthdays)
         await interaction.response.send_message(f"🗑 ДР {user.mention} удалён")
     else:
-        await interaction.response.send_message("❌ У пользователя нет сохранённого ДР")
+        await interaction.response.send_message("❌ У пользователя нет сохранённого ДР", ephemeral=True)
 
 @bot.tree.command(name="list_birthdays", description="Показать все дни рождения")
 async def list_birthdays(interaction: discord.Interaction):
@@ -134,40 +134,6 @@ async def list_birthdays(interaction: discord.Interaction):
         embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
         await interaction.channel.send(embed=embed)
 
-@bot.tree.command(name="next_birthday", description="Показать ближайший день рождения")
-async def next_birthday(interaction: discord.Interaction):
-    birthdays = load_birthdays()
-    if not birthdays:
-        await interaction.response.send_message("📭 Список пуст")
-        return
-
-    today = datetime.now(MSK)
-    parsed = []
-    for user_id, date in birthdays.items():
-        try:
-            d, m = map(int, date.split("/"))
-            this_year = datetime(today.year, m, d, tzinfo=MSK)
-            if this_year < today:
-                this_year = this_year.replace(year=today.year + 1)
-            parsed.append((this_year, user_id, date))
-        except:
-            continue
-    if not parsed:
-        await interaction.response.send_message("❌ Нет корректных дат")
-        return
-
-    parsed.sort(key=lambda x: x[0])
-    next_date, user_id, date = parsed[0]
-    member = interaction.guild.get_member(int(user_id))
-    name = member.display_name if member else f"ID:{user_id}"
-
-    embed = discord.Embed(
-        title="🎉 Ближайший день рождения",
-        description=f"**{name}** — {date} (через {(next_date - today).days} дней)",
-        color=discord.Color.green(),
-    )
-    await interaction.response.send_message(embed=embed)
-
 @bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
 async def set_message(interaction: discord.Interaction, text: str):
     save_message(text)
@@ -177,33 +143,36 @@ async def set_message(interaction: discord.Interaction, text: str):
 def format_money(amount: int) -> str:
     return f"{amount:,}".replace(",", ".") + "$"
 
-# ─── Команды бюджета ─────────────────────────────────────────
+
+# Переменная для хранения баланса
+balance = 0
+
+
 @bot.tree.command(name="add_money", description="Добавить деньги на счёт организации")
 async def add_money(interaction: discord.Interaction, amount: int):
-    budget = load_budget()
-    budget["balance"] += amount
-    save_budget(budget)
+    global balance
+    balance += amount
     await interaction.response.send_message(
-        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
+        f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(balance)}"
     )
+
 
 @bot.tree.command(name="remove_money", description="Снять деньги со счёта организации")
 async def remove_money(interaction: discord.Interaction, amount: int):
-    budget = load_budget()
-    if amount > budget["balance"]:
+    global balance
+    if amount > balance:
         await interaction.response.send_message("❌ Недостаточно средств на счёте!")
     else:
-        budget["balance"] -= amount
-        save_budget(budget)
+        balance -= amount
         await interaction.response.send_message(
-            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(budget['balance'])}"
+            f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(balance)}"
         )
+
 
 @bot.tree.command(name="balance", description="Посмотреть баланс организации")
 async def show_balance(interaction: discord.Interaction):
-    budget = load_budget()
     await interaction.response.send_message(
-        f"🏦 На балансе организации: {format_money(budget['balance'])}"
+        f"🏦 На балансе организации: {format_money(balance)}"
     )
 
 # ─── Задачи ──────────────────────────────────────────────────
