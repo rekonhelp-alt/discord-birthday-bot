@@ -78,6 +78,20 @@ async def add_birthday(interaction: discord.Interaction, user: discord.Member, d
     save_birthdays(birthdays)
     await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}", ephemeral=True)
 
+    # 👇 Новая логика: поздравляем сразу, если дата = сегодня
+    today = datetime.now(MSK).strftime("%d/%m")
+    if date == today:
+        guild = interaction.guild
+        channel = guild.get_channel(CHANNEL_ID)
+        role = guild.get_role(ROLE_ID)
+        if channel:
+            with suppress(discord.Forbidden):
+                if role:
+                    await user.add_roles(role)
+            msg = load_message().replace("{user}", user.mention)
+            embed = discord.Embed(title="🎉 Поздравляем!", description=msg, color=discord.Color.gold())
+            await channel.send(embed=embed)
+
 @bot.tree.command(name="my_birthday", description="Показать твой день рождения")
 async def my_birthday(interaction: discord.Interaction):
     birthdays = load_birthdays()
