@@ -148,8 +148,47 @@ async def list_birthdays(interaction: discord.Interaction):
         embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
         await interaction.channel.send(embed=embed)
 
+        @bot.tree.command(name="next_birthday", description="Показать ближайший день рождения")
+        async def next_birthday(interaction: discord.Interaction):
+            birthdays = load_birthdays()
+            if not birthdays:
+                await interaction.response.send_message("📭 Список пуст")
+                return
+
+            today = datetime.now(MSK)
+            parsed = []
+            for user_id, date in birthdays.items():
+                try:
+                    d, m = map(int, date.split("/"))
+                    this_year = datetime(today.year, m, d, tzinfo=MSK)
+                    if this_year < today:
+                        this_year = this_year.replace(year=today.year + 1)
+                    parsed.append((this_year, user_id, date))
+                except:
+                    continue
+
+            if not parsed:
+                await interaction.response.send_message("❌ Нет корректных дат")
+                return
+
+            parsed.sort(key=lambda x: x[0])
+            next_date, user_id, date = parsed[0]
+            member = interaction.guild.get_member(int(user_id))
+            name = member.display_name if member else f"ID:{user_id}"
+
+            embed = discord.Embed(
+                title="🎉 Ближайший день рождения",
+                description=f"**{name}** — {date} (через {(next_date - today).days} дней)",
+                color=discord.Color.green(),
+            )
+            await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
 async def set_message(interaction: discord.Interaction, text: str):
+    # Если в шаблоне нет {user}, добавим в конец
+    if "{user}" not in text:
+        text = text.strip() + " {user}"
     save_message(text)
     await interaction.response.send_message("✅ Шаблон обновлён")
 
