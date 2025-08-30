@@ -9,10 +9,10 @@ import pytz
 from keep_alive import keep_alive  # если не нужен, можешь убрать
 
 # ─── Настройки ────────────────────────────────────────────────
-TOKEN = os.getenv("TOKEN")  # вставь напрямую, если тестируешь локально
+TOKEN = os.getenv("TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
-ROLE_ID = int(os.getenv("ROLE_ID", "0"))
+ROLE_ID = int(os.getenv("ROLE_ID", "0"))  # используется только для выдачи роли имениннику
 
 MSK = pytz.timezone("Europe/Moscow")
 
@@ -78,7 +78,7 @@ async def add_birthday(interaction: discord.Interaction, user: discord.Member, d
     save_birthdays(birthdays)
     await interaction.response.send_message(f"✅ ДР для {user.mention} установлен: {date}", ephemeral=True)
 
-    # 👇 Новая логика: поздравляем сразу, если дата = сегодня
+    # 👇 Мгновенное поздравление, если дата = сегодня
     today = datetime.now(MSK).strftime("%d/%m")
     if date == today:
         guild = interaction.guild
@@ -132,61 +132,52 @@ async def list_birthdays(interaction: discord.Interaction):
             continue
     parsed.sort(key=lambda x: x[0])
 
-    pages = []
-    chunk = []
+    text = []
     for _, user_id, date in parsed:
         member = interaction.guild.get_member(int(user_id))
         name = member.display_name if member else f"ID:{user_id}"
-        chunk.append(f"**{name}** — {date}")
-        if len(chunk) == 20:
-            pages.append("\n".join(chunk))
-            chunk = []
-    if chunk:
-        pages.append("\n".join(chunk))
+        text.append(f"**{name}** — {date}")
 
-    for page in pages:
-        embed = discord.Embed(title="🎂 Дни рождения", description=page, color=discord.Color.gold())
-        await interaction.channel.send(embed=embed)
+    embed = discord.Embed(title="🎂 Дни рождения", description="\n".join(text), color=discord.Color.gold())
+    await interaction.response.send_message(embed=embed)
 
-        @bot.tree.command(name="next_birthday", description="Показать ближайший день рождения")
-        async def next_birthday(interaction: discord.Interaction):
-            birthdays = load_birthdays()
-            if not birthdays:
-                await interaction.response.send_message("📭 Список пуст")
-                return
+@bot.tree.command(name="next_birthday", description="Показать ближайший день рождения")
+async def next_birthday(interaction: discord.Interaction):
+    birthdays = load_birthdays()
+    if not birthdays:
+        await interaction.response.send_message("📭 Список пуст")
+        return
 
-            today = datetime.now(MSK)
-            parsed = []
-            for user_id, date in birthdays.items():
-                try:
-                    d, m = map(int, date.split("/"))
-                    this_year = datetime(today.year, m, d, tzinfo=MSK)
-                    if this_year < today:
-                        this_year = this_year.replace(year=today.year + 1)
-                    parsed.append((this_year, user_id, date))
-                except:
-                    continue
+    today = datetime.now(MSK)
+    parsed = []
+    for user_id, date in birthdays.items():
+        try:
+            d, m = map(int, date.split("/"))
+            this_year = datetime(today.year, m, d, tzinfo=MSK)
+            if this_year < today:
+                this_year = this_year.replace(year=today.year + 1)
+            parsed.append((this_year, user_id, date))
+        except:
+            continue
 
-            if not parsed:
-                await interaction.response.send_message("❌ Нет корректных дат")
-                return
+    if not parsed:
+        await interaction.response.send_message("❌ Нет корректных дат")
+        return
 
-            parsed.sort(key=lambda x: x[0])
-            next_date, user_id, date = parsed[0]
-            member = interaction.guild.get_member(int(user_id))
-            name = member.display_name if member else f"ID:{user_id}"
+    parsed.sort(key=lambda x: x[0])
+    next_date, user_id, date = parsed[0]
+    member = interaction.guild.get_member(int(user_id))
+    name = member.display_name if member else f"ID:{user_id}"
 
-            embed = discord.Embed(
-                title="🎉 Ближайший день рождения",
-                description=f"**{name}** — {date} (через {(next_date - today).days} дней)",
-                color=discord.Color.green(),
-            )
-            await interaction.response.send_message(embed=embed)
-
+    embed = discord.Embed(
+        title="🎉 Ближайший день рождения",
+        description=f"**{name}** — {date} (через {(next_date - today).days} дней)",
+        color=discord.Color.green(),
+    )
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="set_message", description="Задать шаблон поздравления ({user} = упоминание)")
 async def set_message(interaction: discord.Interaction, text: str):
-    # Если в шаблоне нет {user}, добавим в конец
     if "{user}" not in text:
         text = text.strip() + " {user}"
     save_message(text)
@@ -196,10 +187,8 @@ async def set_message(interaction: discord.Interaction, text: str):
 def format_money(amount: int) -> str:
     return f"{amount:,}".replace(",", ".") + "$"
 
-
-# Переменная для хранения баланса
+# ─── Баланс ──────────────────────────────────────────────────
 balance = 0
-
 
 @bot.tree.command(name="add_money", description="Добавить деньги на счёт организации")
 async def add_money(interaction: discord.Interaction, amount: int):
@@ -208,7 +197,6 @@ async def add_money(interaction: discord.Interaction, amount: int):
     await interaction.response.send_message(
         f"✅ Добавлено {format_money(amount)}. Новый баланс: {format_money(balance)}"
     )
-
 
 @bot.tree.command(name="remove_money", description="Снять деньги со счёта организации")
 async def remove_money(interaction: discord.Interaction, amount: int):
@@ -220,7 +208,6 @@ async def remove_money(interaction: discord.Interaction, amount: int):
         await interaction.response.send_message(
             f"💸 Снято {format_money(amount)}. Новый баланс: {format_money(balance)}"
         )
-
 
 @bot.tree.command(name="balance", description="Посмотреть баланс организации")
 async def show_balance(interaction: discord.Interaction):
@@ -276,17 +263,24 @@ async def remind_birthdays():
     tomorrow = (datetime.now(MSK) + timedelta(days=1)).strftime("%d/%m")
     birthdays = load_birthdays()
     channel = bot.get_channel(CHANNEL_ID)
-    role = guild.get_role(ROLE_ID)
-    if not channel or not role:
+
+    if not channel:
         return
+
+    # ищем именно роль Madison по имени
+    madison_role = discord.utils.get(guild.roles, name="Madison")
 
     for user_id, date in birthdays.items():
         if date == tomorrow:
             member = guild.get_member(int(user_id))
             if member:
+                if madison_role:
+                    description = f"Завтра у {member.mention} день рождения! {madison_role.mention}, готовьте подарки 🎁"
+                else:
+                    description = f"Завтра у {member.mention} день рождения! 🎁"
                 embed = discord.Embed(
                     title="⏰ Напоминание",
-                    description=f"Завтра у {member.mention} день рождения! {role.mention}, готовьте подарки 🎁",
+                    description=description,
                     color=discord.Color.purple(),
                 )
                 await channel.send(embed=embed)
